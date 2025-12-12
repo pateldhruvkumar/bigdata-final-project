@@ -9,9 +9,13 @@ This project provisions and runs an AWS data pipeline that:
 
 ### Architecture diagram
 
-Add the provided diagram image to `docs/pipeline-architecture.png` and it will render here:
+Architecture image (hosted on Google Drive):
 
-![Pipeline Architecture](docs/pipeline-architecture.png)
+![Pipeline Architecture](https://drive.google.com/uc?export=view&id=1uUIoyfXjhdF4S8pjK2ZusG_zAW2pVPDr)
+
+If the image does not render (Drive permissions), place it at `docs/pipeline-architecture.png` and use:
+
+![Pipeline Architecture (local)](docs/pipeline-architecture.png)
 
 ---
 
@@ -119,5 +123,3 @@ python deleteService.py
 You will be prompted to type **`delete`** to confirm.
 
 > Warning: This permanently deletes the S3 bucket (including all objects) and other pipeline resources.
-
-
