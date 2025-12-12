@@ -9,13 +9,16 @@ This project provisions and runs an AWS data pipeline that:
 
 ### Architecture diagram
 
-Architecture image (hosted on Google Drive):
+![Pipeline Architecture](workflow/Workflow.png)
 
-![Pipeline Architecture](https://drive.google.com/uc?export=view&id=1uUIoyfXjhdF4S8pjK2ZusG_zAW2pVPDr)
+---
 
-If the image does not render (Drive permissions), place it at `docs/pipeline-architecture.png` and use:
+## Project outcome (results)
 
-![Pipeline Architecture (local)](docs/pipeline-architecture.png)
+- **Load size achieved**: **5.6 million rows** successfully written into **Amazon DynamoDB**.
+- **End-to-end flow**: Upload CSV → S3 event → Lambda → Glue ETL → DynamoDB items.
+
+> Note: Final load time and throughput depend on AWS region, Glue worker count, DynamoDB account limits, and dataset size.
 
 ---
 
@@ -73,6 +76,62 @@ If the image does not render (Drive permissions), place it at `docs/pipeline-arc
 
 ---
 
+## Dataset
+
+- **Input format**: CSV with header row.
+- **Upload location**: `s3://<bucket>/raw/`
+- **Trigger rule**: only objects that match:
+  - **Prefix**: `raw/`
+  - **Suffix**: `.csv`
+
+---
+
+## DynamoDB data model
+
+The Glue job writes items to a single DynamoDB table:
+
+- **Table name**: configured in `createService.py` (`DYNAMODB_TABLE_NAME`)
+- **Partition key**: `id` (string)
+- **Billing mode**: `PAY_PER_REQUEST` (on-demand)
+- **Additional attributes**:
+  - `ingestion_timestamp`: load time metadata
+  - `source_file`: S3 key that produced the record
+  - Other CSV columns: written as DynamoDB string attributes (via Glue mapping)
+
+If the source CSV does not contain an `id` column, the ETL generates a deterministic ID by hashing the row contents.
+
+---
+
+## Implementation details (what each script does)
+
+### `createService.py`
+
+- **S3 bucket**:
+  - Creates the bucket (or reuses it if it already exists)
+  - Uploads the Glue ETL script to `scripts/…`
+- **IAM roles**:
+  - **Lambda role**: CloudWatch Logs + `glue:StartJobRun` + `s3:GetObject`
+  - **Glue role**: read S3 + write DynamoDB + `AWSGlueServiceRole` managed policy
+- **Glue job**:
+  - Glue version configured in the script (example: Glue 4.0)
+  - Worker configuration configured in the script (worker type + count + timeout)
+- **Lambda function**:
+  - Triggered by S3 `ObjectCreated` events filtered to `raw/*.csv`
+  - Starts the Glue job and passes S3 bucket/key + DynamoDB table name
+
+### `uploadDatasetToS3.py`
+
+- Uploads the local CSV file to the configured S3 bucket/key under `raw/…`
+- This upload is what triggers the pipeline
+
+### `deleteService.py`
+
+- Removes S3 notification configuration and the Lambda invoke permission
+- Deletes Lambda, Glue job, IAM roles, DynamoDB table (optional), and S3 bucket contents + bucket
+- Requires typing `delete` to confirm
+
+---
+
 ## Prerequisites
 
 - **Python 3.x**
@@ -86,7 +145,22 @@ If the image does not render (Drive permissions), place it at `docs/pipeline-arc
 
 ---
 
-## Quick start
+## Configuration (update before running)
+
+These values are hard-coded in the scripts and must match across files:
+
+- **`AWS_REGION`**
+- **`S3_BUCKET_NAME`**
+- **`GLUE_JOB_NAME`**
+- **`LAMBDA_FUNCTION_NAME`**
+- **`DYNAMODB_TABLE_NAME`**
+- **`CSV_UPLOAD_PREFIX`** (expected to be `raw/`)
+
+If you change resource names in `createService.py`, update the same names in `uploadDatasetToS3.py` and `deleteService.py`.
+
+---
+
+## Quick start (reproduce the pipeline)
 
 ### 1) Create the infrastructure
 
@@ -109,6 +183,34 @@ python uploadDatasetToS3.py
 - **Lambda logs**: CloudWatch → Log groups → `/aws/lambda/<lambda-name>`
 - **Glue job**: AWS Glue Console → Jobs → `<job-name>`
 - **DynamoDB table**: DynamoDB Console → Tables → `<table-name>`
+
+---
+
+## Troubleshooting
+
+- **Lambda triggered but Glue didn’t start**
+  - Check Lambda logs for missing environment variables (`GLUE_JOB_NAME`, `DYNAMODB_TABLE_NAME`)
+  - Confirm the Lambda IAM role allows `glue:StartJobRun`
+- **Upload doesn’t trigger Lambda**
+  - Confirm the object key is under `raw/` and ends with `.csv`
+  - Confirm the bucket notification configuration includes the Lambda ARN and filter rules
+- **Glue job fails reading CSV**
+  - Confirm the CSV has a header row
+  - Confirm Glue role has `s3:GetObject` permissions for the bucket
+- **DynamoDB throttling / slow writes**
+  - With on-demand tables, spikes may still be throttled depending on account limits
+  - Reduce Glue parallelism or adjust DynamoDB write options in the ETL mapping/writer
+
+---
+
+## Cost notes (AWS)
+
+Running this pipeline may incur charges for:
+
+- AWS Glue (workers and duration)
+- Lambda invocations (typically small)
+- DynamoDB writes/storage (potentially significant at millions of items)
+- S3 storage and requests
 
 ---
 
