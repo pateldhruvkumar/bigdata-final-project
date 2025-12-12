@@ -1,0 +1,9 @@
+# Ignore dataset files
+dataset/
+
+# Ignore everything in extra/ except the dataset link file
+extra/
+!extra/
+!extra/dataset link.txt
+
+
